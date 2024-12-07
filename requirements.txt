@@ -1,0 +1,7 @@
+streamlit
+geemap
+earthengine-api
+setuptools
+geopandas
+pycrs
+fiona
