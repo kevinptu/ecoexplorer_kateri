@@ -1,0 +1,953 @@
+										ui.root.clear(); // Clear existing map.
+var map = ui.Map(); // Initiate new map object.
+map.setControlVisibility({layerList: false}); // Turn of default layer selector
+
+var drawingTools = map.drawingTools(); // Add drawing tools to the map
+drawingTools.setShown(false); // Activate the drawing tools
+drawingTools.setDrawModes(['polygon', 'point']); // Activate the drawing tools
+drawingTools.setLinked(false); // Activate the drawing tools
+
+function hideDrawings()
+  {var layers = drawingTools.layers();
+    if(layers.length())
+      {layers.get(0).set({shown: false});}}
+
+function clearGeometry() 
+  {var layers = drawingTools.layers();
+  while (drawingTools.layers().length() > 0) {var layer = drawingTools.layers().get(0);drawingTools.layers().remove(layer);}}
+
+function saveGeometry() {
+  var layer_name = geometryName.getValue();
+  // var tablePath = folderPath + "/" + layer_name;
+  var layers = drawingTools.layers();
+  // Get the Earth Engine object (geometry) from the current layer
+  var geometry = layers.get(0).getEeObject();
+  if(geometry.type().getInfo() === "Point" || geometry.type().getInfo() === "MultiPoint"){
+    geometry = geometry.buffer(30) // Creates buffer of 30 m.
+  }
+  // Calculate the area with an error margin (in square meters)
+  var area = geometry.area({maxError: 1}); // Specify error margin in meters
+  
+// Create a feature with the geometry and the computed area as a property
+  var feature = ee.Feature(geometry).set({
+    'name': layer_name,
+    'area_m2': area
+  });
+
+  // var feature = ee.Feature(geometry).set('name', 'Drawn Geometry');
+  var outTable = ee.FeatureCollection(feature);
+  var tableDownloadUrl = outTable.getDownloadURL('KML', [], layer_name);
+  vectorUrlLabel.setUrl(tableDownloadUrl);
+  vectorDownloadPanel.style().set({shown: true});
+  // Export.table.toAsset(outTable, "exportDrawnGeometry", tablePath);
+}
+
+function saveGeometry() {
+  var layer_name = geometryName.getValue();
+  // var tablePath = folderPath + "/" + layer_name;
+  var layers = drawingTools.layers();
+  var geometry = layers.get(0).getEeObject(); // Get the Earth Engine object (geometry) from the current layer
+  if(geometry.type().getInfo() === "Point" || geometry.type().getInfo() === "MultiPoint"){geometry = geometry.buffer(30)} // Creates buffer of 30 m. 
+  var area = geometry.area({maxError: 1}); // Calculate the area with an error margin (in square meters)
+  var feature = ee.Feature(geometry).set({'name': 'Layer_0', 'area_m2': area}); // Create a feature with the geometry and the computed area as a property
+  var outTable = ee.FeatureCollection(feature); // var feature = ee.Feature(geometry).set('name', 'Drawn Geometry');
+  var tableDownloadUrl = outTable.getDownloadURL('KML');
+  vectorUrlLabel.setUrl(tableDownloadUrl);
+  vectorDownloadPanel.style().set({shown: true});
+  // Export.table.toAsset(outTable, "exportDrawnGeometry", tablePath);
+}
+
+function drawPolygon() 
+  {clearGeometry();
+  drawingTools.setShape('polygon');
+  drawingTools.draw();}
+
+function drawPoint() 
+  {clearGeometry();
+  drawingTools.setShape('point');
+  drawingTools.draw();
+  vectorDownloadPanel.style().set({shown: false});}
+
+// Adds a layer selection widget to the given map, to allow users to change
+// which image is displayed in the associated map.
+function addLayerSelector(image_names, get_images) {
+  var label = ui.Label('Choose an image to visualize');
+
+  // Configure a selection dropdown to allow the user to choose between images,
+  // and set the map to update when a user makes a selection.
+  var select = ui.Select({items: image_names, onChange: get_images});
+  //select.setValue(image_names[1], true); // set first layer to be visible by default.
+  select.setValue("Pot New Seq (tCO2/acre/yr)", true);
+
+  var controlPanel =
+      ui.Panel({widgets: [label, select], style: {position: "top-left"}});
+
+  map.add(controlPanel);
+}
+
+var isMapVisible = true; // Define a flag to track the visibility of the map
+
+map.setOptions('SATELLITE');
+
+var thresholdTextbox = ui.Textbox(
+  {placeholder: '30',  // Default value as placeholder
+  value: '30',         // Default value will be 30
+  onChange: function(text) 
+    {var value = parseFloat(text); // Convert the input text to a float
+      if (text === '' || isNaN(value)) // If the input is empty or invalid, use the default value (30)
+      {value = 30;  // Use the default value when no valid input is provided
+        thresholdTextbox.setValue('30');  // Optionally reset the input field to the default value
+        updateResult('Invalid input! Using default threshold value: 30.');}
+    console.log('Threshold value:', value);}, 
+    style: {width: '200px'}});
+
+var thresholdPanel = ui.Panel({layout: ui.Panel.Layout.flow('horizontal')}); // Create a panel with vertical flow layout.
+  thresholdPanel.add(ui.Label({value: 'Tree cover threshold', style: {fontSize: '0.9vw', fontWeight: 'normal'}}));
+  thresholdPanel.add(thresholdTextbox);
+
+var selectPolygonPanel = ui.Panel({layout: ui.Panel.Layout.flow('horizontal')}); // // Create a panel with vertical flow layout.
+
+														   
+
+//var folderPath = 'projects/careful-ensign-420823/assets/ecoexplorer' // Define the folder path
+var folderPath = 'projects/ee-landflux/assets/ecoexplorer';
+//var folderPath = 'projects/ee-landflux/assets/list_2';
+
+var assets =  ee.data.listAssets(folderPath).assets;
+
+var assetList = [];
+
+for(var i in assets){
+  var asset_id = assets[i].id;
+  var asset_name = asset_id.split('/').pop();
+  assetList.push({name: asset_name, assetId: asset_id});} // Add to assetList with a name and assetId
+
+var polygonSelector = ui.Select({items: assetList.map(function(item) { return item.name; }), placeholder: 'Polygon',});
+  selectPolygonPanel.add(ui.Label({value: 'Select polygon', style: {fontSize: '.9vw', fontWeight: 'normal'}}));
+  selectPolygonPanel.add(polygonSelector);
+
+var uploadPolygonLabel = ui.Label(
+    {value: '>> Upload polygon (kml/shapefile/geojson)',
+    style: {color: 'black', fontSize: '.9vw', fontWeight: 'bold', textAlign: 'center'},
+    targetUrl: 'https://ecoexplorer-uploader.streamlit.app/'});
+    //targetUrl: 'https://ecoexplorer-kateri-uploader2.streamlit.app/'});
+
+var yearSelector = ui.Select({placeholder: 'please wait..',});
+
+var selectYearPanel = ui.Panel({layout: ui.Panel.Layout.flow('horizontal')}); // Create a panel with vertical flow layout.
+  selectYearPanel.add(ui.Label({value: 'Select year', style: {fontSize: '.9vw', fontWeight: 'normal'}}));
+  selectYearPanel.add(yearSelector)
+
+var years = ee.List.sequence(1986, 2025);
+
+var yearStrings = years.map(function(year){return ee.Number(year).format('%04d')}) // Convert them to strings using format() function
+  yearStrings.evaluate(function(yearList) // Convert the server-side object to client-side using, evaluate() and use it with ui.Select()
+    {yearSelector.items().reset(yearList)
+    yearSelector.setPlaceholder('Year')});
+
+var displayMapsCheckbox = ui.Checkbox({label: 'Create and display maps', value: true, style: {fontSize: '0.9vw', fontWeight: 'normal'}});
+
+var exportCheckbox = ui.Checkbox({label: 'Create shapefile with tree exclusions (using USFS NLCD TCC)', value: true, style: {fontSize: '0.9vw', fontWeight: 'normal'}});
+
+var intro = ui.Panel([ // Create an intro panel with labels.
+  ui.Label({value: 'Ecoexplorer', style: {fontSize: '1.4vw', fontWeight: 'bold'},}),
+  ui.Label({value: 'This app pulls climate, vegetation and soil info within the US for a location and year', style: {fontSize: '.9vw', fontWeight: 'normal'},}),]);
+
+var panel = ui.Panel(); // Create main panel.
+
+panel.add(intro); // Add widgets to the main panel.
+panel.add(selectPolygonPanel);
+panel.add(uploadPolygonLabel);
+panel.add(selectYearPanel);
+panel.add(displayMapsCheckbox);
+panel.add(exportCheckbox);
+panel.add(thresholdPanel);
+panel.style().set({width: '15%', fontSize: '1vw', fontWeight: 'bold'}); // Set the width and font style for the main panel.
+map.style().set('cursor', 'crosshair'); // Set the default map's cursor to a 'crosshair'.
+map.setCenter(-106.54, 38.79, 4); // Set the center and zoom level of the new map.
+ui.root.add(panel); // Add the main panel to the UI root.
+ui.root.add(map); // Add custom map.
+
+var get_asset = function(selectedName)
+  {var selectedAssetId = null; // Initialize a variable to hold the selected asset ID
+    // Use a loop to find the asset ID of the selected polygon
+    for (var i = 0; i < assetList.length; i++) {if (assetList[i].name === selectedName) {selectedAssetId = assetList[i].assetId; return selectedAssetId;}}
+  }
+
+// Function to load climate, vegetation, and soil info based on a shapefile
+var loadClimateVegetationSoilInfo = function(asset_id, yearofinterest, treeCoverThreshold, displayMaps, shapefileExport) 
+{
+ 
+  var bigger_scale = 4638.3;
+  var smaller_scale = 30;
+  
+  // Script to pull climate, vegetation and soil info for an defined by a shapefile
+  //
+  // ===== Directions ===================================================
+  // ===== How to run the script ========================================
+  // Step 1. Import a shapefile from your Assets (make sure it's named 'table') -- SEE BELOW
+  // Step 2. Enter the desired year of interest above
+  // Step 3. Turn the map displays 'on' or 'off'
+  // Step 4. Run the script by clicking on the Run button above this panel
+  // Step 5. View results in the righthand Console panel
+  // Step 6. Optional: To download a shapefile with excluded tree areas go to Tasks > RUN > expand the submitted task > Google Drive and download the shapefile from there
+  //
+  // ===== How to use a shapefile =======================================
+  // Step 1. Delete any existing shapefiles labeled 'var table' at top of this script (hover over and click on garbage can icon)
+  // Step 2. Hover over the shapefile name in the Assets list and click on the -> icon to import
+  // *Note* - You can import multiple shapefiles but only the one named 'table' will be used
+  //
+  // ===== How to upload a shapefile to Google Earth Engine =============
+  // Step 1. Make sure there are no spaces in the shapefile name
+  // Step 2. Make sure that its a .zip file and contains shp, shx, dbf, prj files
+  // Step 3. Click on Assets > NEW > Shape files in the lefthand panel
+  // Step 4. Navigate to your .zip shapefile by clicking SELECT
+  // Step 5. Click on UPLOAD (wait a minute or two for the shapefile to upload...)
+  //
+  // ===== Data sources used in this script ==================================================
+  // TerraClimate for MAT and MAP (https://developers.google.com/earth-engine/datasets/catalog/IDAHO_EPSCOR_TERRACLIMATE)
+  // Rangeland Analysis Platform for NPP and grass and shrub cover (https://gee-community-catalog.org/projects/rap/)
+  // NLCD Tree Canopy Cover for tree cover (https://developers.google.com/earth-engine/datasets/catalog/USGS_NLCD_RELEASES_2021_REL_TCC_v2021-4)
+  // Soilgrids for SOC (https://gee-community-catalog.org/projects/isric/)
+  // =========================================================================================
+  // ===== DON'T CHANGE ANYTHING BELOW =======================================================
+  // =========================================================================================
+
+  // ===== Format Start and End Dates For Pulling Data ==========================
+  var year = yearofinterest; // <-- NLCD Tree Canopy Cover date range: 2008 to 2021
+  var start = ee.Number(yearofinterest).format("%s").cat('-01-01');
+  var startfourbefore = yearofinterest.subtract(4).format("%s").cat('-01-01'); // grab last 5 years of data
+  var end = yearofinterest.add(1).format("%s").cat('-12-31');
+  var startYear = yearofinterest.subtract(4); // The year of interest
+  var startDate = ee.Number(1986).format("%s").cat('-01-01');
+  var endYear = yearofinterest; // Five years inclusive of the starting year
+  
+  // ====== Grab Point Coordinates ===========================================================
+  //var table2 = ee.FeatureCollection([ee.Feature(table)]);
+  var table;
+  if(drawingTools.layers().length() === 1)
+    {var layers = drawingTools.layers(); // Access the layers of the drawing tools
+    var geometry = layers.get(0).getEeObject(); // Get the Earth Engine object (geometry) from the current layer
+    if(geometry.type().getInfo() === "Point" || geometry.type().getInfo() === "MultiPoint")
+      {geometry = geometry.buffer(30) // Creates buffer of 30 m.
+      bigger_scale = 30}
+    var area = geometry.area({maxError: 1}); // Calculate the area with an error margin (in square meters)
+    var feature = ee.Feature(geometry).set({'name': 'Layer_0', 'area_m2': area}); // Create a feature with the geometry and the computed area as a property
+    table = ee.FeatureCollection(feature);}
+  else
+    {clearGeometry(); table = ee.FeatureCollection(asset_id);}
+  var table2;
+  if (table && table.size().getInfo() > 0) {table2 = table;}
+  else 
+    {var coordinates = geometry.coordinates();
+    var point = ee.Geometry.Point(coordinates);
+    table2 = ee.FeatureCollection([ee.Feature(point)]);}
+  var areaInSqMeters = table2.geometry().area(); // Calculate area in square meters
+  var areaInAcres = areaInSqMeters.divide(4046.86); // Convert to acres (1 acre = 4046.86 square meters)
+
+  // ===== Pull Data ===================================================================
+  // TerraClimate
+  var TerraClimate = ee.ImageCollection('IDAHO_EPSCOR/TERRACLIMATE');
+    var TerraClimate5 = TerraClimate.filterDate(startfourbefore, end);
+//      .filterBounds(table2).filter(ee.Filter.date(startfourbefore, end));
+
+  // RAP NPP
+  var RAP = ee.ImageCollection("projects/rap-data-365417/assets/npp-partitioned-v3");
+    var RAPlast5 = RAP.filterDate(startfourbefore, end); 
+//      .filterBounds(table2).filter(ee.Filter.date(startfourbefore, end));
+      
+  var RAPcover = ee.ImageCollection("projects/rap-data-365417/assets/vegetation-cover-v3");
+    var RAPcoverLast5 = RAPcover.filterDate(startfourbefore, end);
+//      .filterBounds(table2).filter(ee.Filter.date(startfourbefore, end));
+  
+  // ALOS DSM
+  var dataset = ee.ImageCollection('JAXA/ALOS/AW3D30/V3_2')
+      .filterBounds(table2);
+  var elevation = dataset.select('DSM');
+
+  // SoilGrids
+  var bdod_5_15 = ee.Image("projects/soilgrids-isric/bdod_mean").select('bdod_5-15cm_mean').clip(table2); // Bulk Density, 5-15cm (cg/cm^3)
+  var isric_ocs = ee.Image("projects/soilgrids-isric/ocs_mean").select('ocs_0-30cm_mean').clip(table2); // SOC stock, 0-30cm (tC/ha)
+  var cfvo0_5 = ee.Image("projects/soilgrids-isric/cfvo_mean").select('cfvo_0-5cm_mean').clip(table2); // Volumetric Course Fragment, 0-5cm (cm^3/dm^3 by vol%)
+  var cfvo5_15 = ee.Image("projects/soilgrids-isric/cfvo_mean").select('cfvo_5-15cm_mean').clip(table2); // Volumetric Course Fragment, 5-15cm (cm^3/dm^3 by vol%)
+  var cfvo15_30 = ee.Image("projects/soilgrids-isric/cfvo_mean").select('cfvo_15-30cm_mean').clip(table2); // Volumetric Course Fragment, 15-30cm (cm^3/dm^3 by vol%)
+  var sand0_5 = ee.Image("projects/soilgrids-isric/sand_mean").select('sand_0-5cm_mean').clip(table2); // Sand, 0-5cm (g/kg)
+  var sand5_15 = ee.Image("projects/soilgrids-isric/sand_mean").select('sand_5-15cm_mean').clip(table2); // Sand, 5-15cm (g/kg)
+  var sand15_30 = ee.Image("projects/soilgrids-isric/sand_mean").select('sand_15-30cm_mean').clip(table2); // Sand, 15-30cm (g/kg)
+
+  // ===== Calculate Spatial Maps of Temporal Averages ==============================================
+  var maximumTemperature = TerraClimate5.select('tmmx').reduce(ee.Reducer.mean()).multiply(0.1).clip(table2); // deg C
+  var minimumTemperature = TerraClimate5.select('tmmn').reduce(ee.Reducer.mean()).multiply(0.1).clip(table2); // deg C
+  var MAP = TerraClimate5.select('pr').reduce(ee.Reducer.sum()).divide(5).clip(table2); // mm/yr
+  var MAT = maximumTemperature.add(minimumTemperature).divide(2); // deg C
+  var PET = TerraClimate5.select('pet').reduce(ee.Reducer.sum()).divide(5).multiply(0.1).clip(table2); // mm/yr
+  var AET = TerraClimate5.select('aet').reduce(ee.Reducer.sum()).divide(5).multiply(0.1).clip(table2); // mm/yr
+  var AI = MAP.divide(PET).rename('AI_mean'); // mm/mm
+  var afgCover = RAPcoverLast5.select('AFG').reduce(ee.Reducer.mean()).clip(table2); // annual grass and forbs cover (%)
+  var pfgCover = RAPcoverLast5.select('PFG').reduce(ee.Reducer.mean()).clip(table2); // perennial grass cover (%)
+  var shrCover = RAPcoverLast5.select('SHR').reduce(ee.Reducer.mean()).clip(table2); // shrub cover (%)
+  var treCover = RAPcoverLast5.select('TRE').reduce(ee.Reducer.mean()).clip(table2); // tree cover (%)
+  var ltrCover = RAPcoverLast5.select('LTR').reduce(ee.Reducer.mean()).clip(table2); // litter cover (%)
+  var bgrCover = RAPcoverLast5.select('BGR').reduce(ee.Reducer.mean()).clip(table2); // bare ground (%)
+  var afgNPP = RAPlast5.select('afgNPP').reduce(ee.Reducer.mean()).multiply(0.0001).multiply(1000).multiply(10000).divide(2.47105).multiply(44/12).divide(1000000).clip(table2); // tCO2/acre/yr
+  var pfgNPP = RAPlast5.select('pfgNPP').reduce(ee.Reducer.mean()).multiply(0.0001).multiply(1000).multiply(10000).divide(2.47105).multiply(44/12).divide(1000000).clip(table2); // tCO2/acre/yr
+  var shrNPP = RAPlast5.select('shrNPP').reduce(ee.Reducer.mean()).multiply(0.0001).multiply(1000).multiply(10000).divide(2.47105).multiply(44/12).divide(1000000).clip(table2); // tCO2/acre/yr
+  var treNPP = RAPlast5.select('treNPP').reduce(ee.Reducer.mean()).multiply(0.0001).multiply(1000).multiply(10000).divide(2.47105).multiply(44/12).divide(1000000).clip(table2); // tCO2/acre/yr
+//  var actualNPP = afgNPP.add(pfgNPP).add(shrNPP).rename('actualNPP_mean'); // tCO2/acre/yr
+  var actualNPP = afgNPP.add(pfgNPP).rename('actualNPP_mean'); // tCO2/acre/yr
+  var NPPpot = ee.Image.pixelArea();
+  var part1 = NPPpot.expression('3000 / (1 + exp(1.315 - 0.119 * MAT))', {'MAT': MAT}); // gDM/m2/yr
+  var part2 = NPPpot.expression('3000 * (1 - exp(-0.000664 * MAP))', {'MAP': MAP}); // gDM/m2/yr
+  var potentialNPP = part1.min(part2).multiply(0.48).multiply(10000).multiply(44/12).divide(2.47105*1000000).rename('potential_NPP'); // tCO2/acre/yr
+  var potentialNPPimprovement = potentialNPP.subtract(actualNPP).where(potentialNPP.subtract(actualNPP).lt(0), 0).rename('potNPPimprovement');
+  var potAddSeq = potentialNPPimprovement.multiply(0.2).rename('potAddSeq'); // potential SOC sequestration that is additional
+  var cfvo0_30 = cfvo0_5.multiply(5/30).add(cfvo5_15.multiply(10/30)).add(cfvo15_30.multiply(15/30)).divide(1000).multiply(100).rename('cfvo0_30'); // average of % volumetric coarse content from 0-30cm, cm^3/dm^3*(dm*dm*dm/[10cm*10cm*10cm])*(100%)
+  var sand0_30 = sand0_5.multiply(5/30).add(sand5_15.multiply(10/30)).add(sand15_30.multiply(15/30)).divide(1000).multiply(100).rename('sand0_30'); // average of % sand content from 0-30cm, g/kg*(kg/1000g)*(100%)
+//  if (endYear >= 1984 && yearofinterest.getInfo <= 2024) 
+    {var dataset = ee.ImageCollection('USGS/NLCD_RELEASES/2023_REL/TCC/v2023-5');
+     var tcc = dataset.filter(ee.Filter.calendarRange(startYear, endYear, 'year'))  // Range for the five years
+      .filter('study_area == "CONUS"')  // or "AK", "PRUSVI", "HAWAII"
+      .select('NLCD_Percent_Tree_Canopy_Cover')
+      .mean()  // Calculate the mean over the specified time range
+      .clip(table2);} // Clip to the geometry of interest 
+//  else 
+//    {var tcc = treCover.rename('NLCD_Percent_Tree_Canopy_Cover');}
+    
+// ************************************************************
+// ***********************TEMPORARY ***************************
+// ************************************************************
+//  var tcc = treCover.rename('NLCD_Percent_Tree_Canopy_Cover')  
+// ************************************************************
+// ***********************TEMPORARY ***************************
+// ************************************************************
+  var proj = elevation.first().select(0).projection();
+  var slope = ee.Terrain.slope(elevation.mosaic()
+     .setDefaultProjection(proj)).clip(table2);
+
+  // ===== Calculate Spatial Averages of 5-yr Means =================================================
+    // Annual Average Precipitation over the ROI
+  var map_spatialAverage = MAP.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: bigger_scale, maxPixels: 1e13});
+    // Annual Average Air Temperature over the ROI
+  var mat_spatialAverage = MAT.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: bigger_scale, maxPixels: 1e13});
+    // Annual Average Actual Evapotranspiration over the ROI
+  var aet_spatialAverage = AET.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: bigger_scale, maxPixels: 1e13});
+    // Annual Average Potential Evapotranspiration over the ROI
+  var pet_spatialAverage = PET.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: bigger_scale, maxPixels: 1e13});
+    // Annual Average Aridity Index over the ROI
+  var ai_spatialAverage = AI.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: bigger_scale, maxPixels: 1e13});
+    // Annual Average Annual Grass & Forb Cover over the ROI
+  var afgCover_spatialAverage = afgCover.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: smaller_scale, maxPixels: 1e10});
+    // Annual Average Perennial Grass Cover over the ROI
+  var pfgCover_spatialAverage = pfgCover.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: smaller_scale, maxPixels: 1e10});
+    // Annual Average Shrub Cover over the ROI
+  var shrCover_spatialAverage = shrCover.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: smaller_scale, maxPixels: 1e10});
+    // Annual Average Tree Cover over the ROI
+  var treCover_spatialAverage = treCover.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: smaller_scale, maxPixels: 1e10});
+    // Annual Average Litter Cover over the ROI
+  var ltrCover_spatialAverage = ltrCover.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: smaller_scale, maxPixels: 1e10});
+    // Annual Average Bare Ground over the ROI
+  var bgrCover_spatialAverage = bgrCover.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: smaller_scale, maxPixels: 1e10});
+    // Annual Average Actual NPP over the ROI
+  var NPP_spatialAverage = actualNPP.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: bigger_scale, maxPixels: 1e13});
+    // Annual Average Potential NPP over the ROI
+  var NPPpot_spatialAverage = potentialNPP.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: bigger_scale, maxPixels: 1e13});
+    // Annual Average Potential NPP Improvement over the ROI
+  var potentialNPPimprovement_spatialAverage = potentialNPPimprovement.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: bigger_scale, maxPixels: 1e13});
+    // Annual Average Potential Additional SOC Sequestration over the ROI
+  var potAddSeq_spatialAverage = potAddSeq.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: bigger_scale, maxPixels: 1e13});
+    // SoilGrids - OCS, 0-30cm over the ROI
+  var ocs_spatialAverage = isric_ocs.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: 250, maxPixels: 1e13});
+    // SoilGrids - Volumetric Coarse Fraction, 0-30cm over the ROI
+  var cfvo0_30_spatialAverage = cfvo0_30.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: 250, maxPixels: 1e13});
+    // SoilGrids - Sand, 0-30cm over the ROI
+  var sand0_30_spatialAverage = sand0_30.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: 250, maxPixels: 1e13});
+    // NLCD Tree Canopy Cover Spatial Average over the ROI
+  if (endYear >= 1984 && yearofinterest <= 2024) {var nlcd_spatialAverage = tcc.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: smaller_scale, maxPixels: 1e13});}
+  else {var nlcd_spatialAverage = tcc.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: smaller_scale, maxPixels: 1e10});}
+    // Average Slope over the ROI
+  var slope_spatialAverage = slope.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: smaller_scale, maxPixels: 1e13});
+  var percentGrade = ee.Number(slope_spatialAverage.get('slope')).multiply(Math.PI).divide(180).tan().multiply(100);
+
+// RAP NPP
+//var RAP = ee.ImageCollection("projects/rap-data-365417/assets/npp-partitioned-v3");
+
+//var fANPP = (matYear.multiply(0.0129)).add(0.171).rename('fANPP'); // fraction of NPP to allocate aboveground
+
+// Clip the collection to the desired region using map (this applies clip to each image in the collection)
+var maximumTemperatureClip = TerraClimate.select('tmmx').map(function(image) {return image.clip(table2);}); // Clip each image to table2 region
+var minimumTemperatureClip = TerraClimate.select('tmmn').map(function(image) {return image.clip(table2);}); // Clip each image to table2 region
+var MMPclip = TerraClimate.select('pr').map(function(image) {return image.clip(table2);}); // Clip each image to table2 region
+var afgNPPclip = RAP.select('afgNPP').map(function(image) {return image.clip(table2);}); // Clip each image to table2 region
+var pfgNPPclip = RAP.select('pfgNPP').map(function(image) {return image.clip(table2);}); // Clip each image to table2 region
+var shrNPPclip = RAP.select('shrNPP').map(function(image) {return image.clip(table2);}); // Clip each image to table2 region
+
+// Function to calculate the mean monthly air temperature
+function MMT_calc(image) 
+  {var MMT = image.select(['tmmx', 'tmmn']).reduce(ee.Reducer.mean()); // Average the two bands
+  MMT = MMT
+    .multiply(0.1)  // MMT scalar (deg C)
+    .rename('MMT'); // Rename the result
+  return image.addBands(MMT);} // Add the 'MMT' band back to the image
+  
+// Calculate MAT for each year
+function MAT_calc(imageCollection) {
+  // Apply MMT_calc to calculate monthly mean temperature
+  var withMMT = imageCollection.map(MMT_calc);
+  // Group by year
+  var years = ee.List.sequence(1986, 2025); // Example years
+  var annualMAT = years.map(function(year) {
+    var yearCollection = withMMT.filter(ee.Filter.calendarRange(year, year, 'year'));
+    var MAT = yearCollection.select('MMT')
+      .reduce(ee.Reducer.mean())
+      .rename('MAT') // Rename the band explicitly to 'MAT'
+      .set('system:time_start', ee.Date.fromYMD(year, 1, 1).millis()); // Set time
+    return MAT;
+  });
+  return ee.ImageCollection(annualMAT);
+}
+
+// Calculate MAP for each year
+function MAP_calc(imageCollection) {
+  // Apply MAP_calc to calculate monthly mean temperature
+  var withMAP = TerraClimate.select('pr');
+  // Group by year
+  var years = ee.List.sequence(1986, 2025); // Example years
+  var annualMAP = years.map(function(year) {
+    var yearCollection = withMAP.filter(ee.Filter.calendarRange(year, year, 'year'));
+    var MAP = yearCollection.select('pr')
+      .reduce(ee.Reducer.mean())
+      .rename('MAP') // Rename the band explicitly to 'MAP'
+      .set('system:time_start', ee.Date.fromYMD(year, 1, 1).millis()); // Set time
+    return MAP;
+  });
+  return ee.ImageCollection(annualMAP);
+}
+
+// Function to calculate the sum of afgNPP, pfgNPP, and shrNPP for each image    
+function actualNPP_calc(image) 
+//  {var actualNPP = image.select(['afgNPP', 'pfgNPP', 'shrNPP']).reduce(ee.Reducer.sum()); // Sum the three bands
+  {var actualNPP = image.select(['afgNPP', 'pfgNPP']).reduce(ee.Reducer.sum()); // Sum the three bands
+  actualNPP = actualNPP
+    .multiply(0.0001)  // NPP scalar (kgC/m2/yr)
+    .multiply(1000)   // gC/kgC (now gC/m2/yr)
+    .multiply(10000)  // m2/ha (now gC/ha/yr)
+    .divide(2.47105)  // acres/ha (now gC/acre/yr)
+    .multiply(44/12)  // CO2/C (now gCO2/acre/yr)
+    .divide(1000000)  // g/tonnes (now tCO2/acre/yr)
+    .rename('actualNPP'); // Rename the result
+  return image.addBands(actualNPP);} // Add the 'actualNPP' band back to the image
+
+// Run calculations for the entire collection
+var withNPP = RAP.map(actualNPP_calc);
+var withMMT = TerraClimate.map(MMT_calc);
+var withMAT = MAT_calc(TerraClimate);
+var withMAP = MAP_calc(TerraClimate);
+
+  // General function to combine layers into a single image collection
+  function combineLayers(imageCollections) {
+    var combinedData = ee.ImageCollection(
+      ee.List.sequence(1986, 2025).map(function(year) {
+        // Start with an empty image for each year
+        var combinedImage = ee.Image().set('system:time_start', ee.Date.fromYMD(year, 1, 1).millis());
+        
+        // Add all layers to the combined image
+        imageCollections.forEach(function(collection) {
+          var yearImage = ee.Image(collection.filter(ee.Filter.calendarRange(year, year, 'year')).first());
+          combinedImage = combinedImage.addBands(yearImage);
+        });
+        return combinedImage;
+      })
+    );
+    return combinedData;
+  }
+  
+  var withSand = ee.ImageCollection(
+  ee.List.sequence(1986, 2025).map(function(year) {
+    return sand0_30.set('system:time_start', ee.Date.fromYMD(year, 1, 1).millis());
+  })
+);
+  
+  // Combine all layers, including soil sand content
+  var combinedData = combineLayers([withNPP, withMAT, withMAP, withSand]);
+
+// Create a time series chart of the spatially averaged sum of the NPP bands
+var chart_actualNPP = ui.Chart.image.series({
+  imageCollection: withNPP.select('actualNPP'),  // Use the 'actualNPP' band
+  region: table2,  // Define the region of interest
+  reducer: ee.Reducer.mean(),  // Use the mean reducer to get the spatial average
+  scale: 30  // Define the scale (in meters)
+}).setOptions({
+  lineWidth: 1,
+  title: 'Actual NPP Time Series (sum of afgNPP, pfgNPP)',
+  interpolateNulls: true,
+  vAxis: {title: 'NPP (tCO2/acre/yr)'}, //, viewWindow: {min:0, max:1000}},
+  hAxis: {title: 'Date', format: 'YYYY-MMM'}
+});
+
+//// Create a time series chart of the spatially averaged mean monthly temperatures
+//var chart_MMT = ui.Chart.image.series({
+//  imageCollection: withMMT.select('MMT'),  // Use the 'MMT' band
+//  region: table2,  // Define the region of interest
+//  reducer: ee.Reducer.mean(),  // Use the mean reducer to get the spatial average
+//  scale: 4638.3  // Define the scale (in meters)
+//}).setOptions({
+//  lineWidth: 1,
+//  title: 'Mean Monthly Air Temperature Time Series',
+//  interpolateNulls: true,
+//  vAxis: {title: 'Mean Monthly Air Temperature (deg C)'}, //, viewWindow: {min:0, max:1000}},
+//  hAxis: {title: 'Date', format: 'YYYY-MMM'}
+//});
+
+// Create a time series chart of the spatially averaged mean annual temperatures
+var chart_MAT = ui.Chart.image.series({
+  imageCollection: withMAT.select('MAT'),  // Use the 'MAT' band
+  region: table2,  // Define the region of interest
+  reducer: ee.Reducer.mean(),  // Use the mean reducer to get the spatial average
+  scale: 4638.3  // Define the scale (in meters)
+}).setOptions({
+  lineWidth: 1,
+  title: 'Mean Annual Air Temperature Time Series',
+  interpolateNulls: true,
+  vAxis: {title: 'Mean Annual Air Temperature (deg C)'}, //, viewWindow: {min:0, max:1000}},
+  hAxis: {title: 'Date', format: 'YYYY-MMM'}
+});
+
+// Create a time series chart of the spatially averaged mean annual precipitation
+var chart_MAP = ui.Chart.image.series({
+  imageCollection: withMAP.select('MAP'),  // Use the 'MAP' band
+  region: table2,  // Define the region of interest
+  reducer: ee.Reducer.sum(),  // Use the sum reducer to get the spatial sum
+  scale: 4638.3  // Define the scale (in meters)
+}).setOptions({
+  lineWidth: 1,
+  title: 'Mean Annual Precipitation Time Series',
+  interpolateNulls: true,
+  vAxis: {title: 'Mean Annual Precipitation (mm/yr)'}, //, viewWindow: {min:0, max:1000}},
+  hAxis: {title: 'Date', format: 'YYYY-MMM'}
+});
+
+// Print the chart to the console
+print(chart_actualNPP);
+//print(chart_MMT);
+print(chart_MAT);
+print(chart_MAP);
+
+
+  // ===== Tree Exclusions ==============================================================
+  var maskBelowThreshold = tcc.select('NLCD_Percent_Tree_Canopy_Cover').lte(treeCoverThreshold);
+  var maskAboveThreshold = tcc.select('NLCD_Percent_Tree_Canopy_Cover').gt(treeCoverThreshold);
+  var excludedAreaImage = ee.Image.pixelArea().updateMask(maskAboveThreshold); // Create a binary image of the excluded areas above tree threshold
+  var excludedArea = excludedAreaImage.reduceRegion({reducer: ee.Reducer.sum(), geometry: table.geometry(), scale: smaller_scale, maxPixels: 1e10}).get('area'); // Sum the pixels with tree cover above the threshold
+  var excludedAreaAcres = ee.Number(excludedArea).divide(4046.86);
+  var Acres_woTrees = areaInAcres.subtract(excludedAreaAcres);
+  var projectAreaImage = ee.Image(1).updateMask(maskBelowThreshold).clip(table); // Create an image of the included areas below the tree threshold
+  var treesAreaImage = ee.Image(1).updateMask(maskAboveThreshold).clip(table); // Create an image of the excluded areas above the tree threshold
+
+  // ===== PRINT RESULTS TO CONSOLE WINDOW ==============================================
+  // Format values
+  var formatted_Acres = ee.Number(areaInAcres).round().toInt().format('%d');
+  var formatted_Acres_woTrees = ee.Number(Acres_woTrees).round().toInt().format('%d');
+  var formatted_MAT_C = ee.Number(mat_spatialAverage.get('tmmx_mean')).format('%.1f');
+  var formatted_MAP_mm = ee.Number(map_spatialAverage.get('pr_sum')).format('%.1f');
+  var formatted_MAT_F = ee.Number(mat_spatialAverage.get('tmmx_mean')).multiply(9).divide(5).add(32).format('%.1f');
+  var formatted_MAP_in = ee.Number(map_spatialAverage.get('pr_sum')).divide(25.4).format('%.1f');
+  var formatted_AET_mm = ee.Number(aet_spatialAverage.get('aet_sum')).format('%.1f');
+  var formatted_AET_in = ee.Number(aet_spatialAverage.get('aet_sum')).divide(25.4).format('%.1f');
+  var formatted_PET_mm = ee.Number(pet_spatialAverage.get('pet_sum')).format('%.1f');
+  var formatted_PET_in = ee.Number(pet_spatialAverage.get('pet_sum')).divide(25.4).format('%.1f');
+  var formatted_AI = ee.Number(ai_spatialAverage.get('AI_mean')).format('%.2f');
+  var formatted_Annuals = ee.Number(afgCover_spatialAverage.get('AFG_mean')).format('%.1f');
+  var formatted_Perennials = ee.Number(pfgCover_spatialAverage.get('PFG_mean')).format('%.1f');
+  var formatted_Shrubs = ee.Number(shrCover_spatialAverage.get('SHR_mean')).format('%.1f');
+  var formatted_Trees = ee.Number(treCover_spatialAverage.get('TRE_mean')).format('%.1f');
+  var formatted_Litter = ee.Number(ltrCover_spatialAverage.get('LTR_mean')).format('%.1f');
+  var formatted_BareGround = ee.Number(bgrCover_spatialAverage.get('BGR_mean')).format('%.1f');
+  var formatted_NPPpot = ee.Number(NPPpot_spatialAverage.get('potential_NPP')).format('%.1f');
+  var formatted_NPP = ee.Number(NPP_spatialAverage.get('actualNPP_mean')).format('%.1f');
+  var formatted_potentialNPPimprovement = ee.Number(potentialNPPimprovement_spatialAverage.get('potNPPimprovement')).format('%.1f');
+  var formatted_potAddSeq = ee.Number(potAddSeq_spatialAverage.get('potAddSeq')).format('%.1f');
+  var formatted_SOC = ee.Number(ocs_spatialAverage.get('ocs_0-30cm_mean')).format('%.1f');
+  var formatted_CF = ee.Number(cfvo0_30_spatialAverage.get('cfvo0_30')).format('%.1f');
+  var formatted_Sand = ee.Number(sand0_30_spatialAverage.get('sand0_30')).format('%.1f');
+  var formatted_TCC = ee.Number(nlcd_spatialAverage.get('NLCD_Percent_Tree_Canopy_Cover')).format('%.1f');
+  var formatted_Slope = ee.Number(slope_spatialAverage.get('slope')).format('%.1f');
+  var formatted_Grade = percentGrade.format('%.1f');
+  var blank = ee.String('');
+
+  var table2Name = table2.getInfo().id; // Get the asset ID as a string
+  if(table2Name === undefined) {table2Name = 'Drawn Geometry';}
+  if (table && table.size().getInfo() > 0) {var lastPart = ee.String(table2Name).split('/').get(-1);} // Get the last part after the last '/'
+  else {var lastPart = ee.String('Point Estimate');}
+  var exportName = lastPart.getInfo() + '_shp_excluding_trees_' + endYear;
+
+  var results = 
+  {
+    '11 -----SITE & YEAR----------------------------------------------------': blank,
+    '1a - AOI': lastPart,
+    '1b - Area': formatted_Acres.cat(' acres').cat(' (').cat(formatted_Acres_woTrees).cat(' excluding tree cover').cat(' > ').cat(ee.String(ee.Number(treeCoverThreshold))).cat('%').cat(')'),
+    '1c - Years': ee.String(ee.Number(startYear)).cat(' through ').cat(ee.String(ee.Number(endYear))),
+    '22 -----CLIMATE--------------------------------------------------------': blank,
+    '2a - MAT': ee.String('(').cat(formatted_MAT_C).cat(' deg C) ').cat(formatted_MAT_F).cat(' deg F'),
+    '2b - MAP': ee.String('(').cat(formatted_MAP_mm).cat(' mm/yr) ').cat(formatted_MAP_in).cat(' in/yr'),
+    '2c - AET': ee.String('(').cat(formatted_AET_mm).cat(' mm/yr) ').cat(formatted_AET_in).cat(' in/yr'),
+    '2d - PET': ee.String('(').cat(formatted_PET_mm).cat(' mm/yr) ').cat(formatted_PET_in).cat(' in/yr'),
+    '2e - Aridity Index': formatted_AI,
+    '33 -----VEGETATION COVER------------------------------------------------': blank,
+    '3a - Annual Grass and Forb Cover': formatted_Annuals.cat('%'),
+    '3b-  Perennial Cover': formatted_Perennials.cat('%'),
+    '3c - Shrub Cover': formatted_Shrubs.cat('%'),
+    '3d - NLCD Tree Cover': formatted_TCC.cat('%'),
+    '3e - RAP Tree Cover': formatted_Trees.cat('%'),
+    '3f - Litter Cover': formatted_Litter.cat('%'),
+    '3g - Bare Ground': formatted_BareGround.cat('%'),
+    '44 -----PLANT PRODUCTIVITY----------------------------------------------': blank,
+    '4a - Potential NPP (based on climate)': formatted_NPPpot.cat(' tCO2/acre/yr'),
+    '4b - Actual Herbaceous NPP': formatted_NPP.cat(' tCO2/acre/yr'),
+    '4c - Potential NPP Improvement': formatted_potentialNPPimprovement.cat(' tCO2/acre/yr'),
+    '4d - Potential New Sequestration': formatted_potAddSeq.cat(' tCO2/acre/yr'),
+    '55 -----SOIL & TOPOGRAPHY -----------------------------------------------': blank,
+    '5a - Coarse Fragment (0-30cm)': formatted_CF.cat('%'),
+    '5b - Sand (0-30cm)': formatted_Sand.cat('%'),
+    '5c - SOC (0-30cm)': formatted_SOC.cat(' tC/ha'),
+    '5d - Slope': formatted_Slope.cat(' degrees (').cat(formatted_Grade).cat('% grade)')
+  };
+  
+  var resultsDict = ee.Dictionary(results); // Convert to ee.Dictionary
+  var formattedResults = resultsDict.keys().map(function(key) {return ee.String(key).cat(': ').cat(resultsDict.get(key));});
+  updateResult('Results: \n ' + formattedResults.join('\n').getInfo());
+  
+  // ===== PALETTES FOR MAP DISPLAYS ===================================================
+  var main_palette = ['d7191c', 'fdae61', 'ffffbf', 'abdda4', '2b83ba']; // TCC palette
+  //var main_palette = ['d7191c', 'fdae61', 'f8f8db', 'e2d4d4', '3a9a2b']; // degradation colors
+
+  var main_palette2 = [
+    'red', // 0 - Low
+    'orange', // 1 -
+    'yellow', //D2B48C', // 2 - Medium
+    'green', // 3 -
+    'blue' // 4 - High
+  ];
+
+  var green_palette = [
+    'black',   // 0 - Low
+    'green',    // 1 - Medium
+    'yellow'  // 2 - High
+  ]
+
+  var tcc_palette = ['CDA066','D7C29E','C2D096','B7D692','ADDD8E','78C679','5CB86B','41AB5D','39A156','329750','238443','11763D','006837','004529'];
+
+  var three_palette = [
+    'red',   // 0 - Low
+    'orange',    // 1 - Medium
+    'yellow'  // 2 - High
+  ];
+
+  var fire_palette = [
+    'purple',   // 0 - no fire
+    'red',   // 1 - low intensity
+    'orange', // 2 - moderate intensity
+    'yellow', // 3 - high intensity
+    'cyan',    // 4 - very high intensity
+    'blue'  // 5 - extreme intensity
+  ];
+
+  var five_palette = [
+    '231650', // 0 - Low
+    '612E37', // 1 - Medium-Low
+    'B83A14', // 2 - Medium
+    'F3742B',  // 3 - Medium-High
+    'FED172'   // 4 - High
+  ];
+
+  var se_palette = ['000000', 'FFFFFF'];
+
+  // ===== DISPLAY TIME-AVERAGED MAPS =================================================
+  map.centerObject(table2);
+  map.addLayer(table2.style({color: 'black', fillColor: '00000000'}), {}, "ROI"); // Display boundary on map
+  
+  // Function to calculate min and max for an image
+  function getMinMax(image) 
+  {
+    //  var min = ee.Number(image.reduceRegion({reducer: ee.Reducer.min(), geometry: table2, scale: smaller_scale, maxPixels: 1e13}).values().get(0));
+    //  var max = ee.Number(image.reduceRegion({reducer: ee.Reducer.max(), geometry: table2, scale: smaller_scale, maxPixels: 1e13}).values().get(0));
+    var mean = ee.Number(image.reduceRegion({reducer: ee.Reducer.mean(), geometry: table2, scale: smaller_scale, maxPixels: 1e13}).values().get(0));
+    var stdDev = ee.Number(image.reduceRegion({reducer: ee.Reducer.stdDev(), geometry: table2, scale: smaller_scale, maxPixels: 1e13}).values().get(0));
+        var min = mean.subtract(stdDev.multiply(2));
+        var max = mean.add(stdDev.multiply(2));
+    return {min: min, max: max, mean: mean, stdDev: stdDev};
+  }
+  
+  // ===== Export Stuff ==================================================================
+  if (shapefileExport) 
+    {
+    var thresholdedImage = projectAreaImage.gt(0);  // Threshold the image to create a binary mask (e.g., areas of interest), change the threshold as needed
+
+    // Vectorize the thresholded image
+    var vectorized = thresholdedImage.reduceToVectors(
+      {geometry: table2.geometry(),      // Define the area of interest for vectorization
+      geometryType: 'polygon',           // Specify the type of geometry to create (point, line, polygon)
+      eightConnected: false,             // Use 8-connectivity or 4-connectivity for pixels
+      scale: 30,                         // Specify the scale in meters (resolution of the image)
+      bestEffort: true,                  // Try to produce a vector even if it might not be perfect
+      labelProperty: 'label',            // Name for the new property in the output feature
+      });
+
+    var downloadUrl_kml = vectorized.getDownloadURL('KML');
+      urlLabel_kml.setUrl(downloadUrl_kml);
+      urlLabel_kml.style().set({shown: true});
+    var downloadUrl_shp = vectorized.getDownloadURL('SHP');
+      urlLabel_shp.setUrl(downloadUrl_shp);
+      urlLabel_shp.style().set({shown: true});
+    var downloadUrl_geojson = vectorized.getDownloadURL('GeoJSON');
+      urlLabel_geojson.setUrl(downloadUrl_geojson);
+      urlLabel_geojson.style().set({shown: true});
+    }
+  else
+    {urlLabel.style().set({shown: false});}
+  
+  if (displayMaps) 
+    {
+    if (!isMapVisible) {ui.root.add(map); isMapVisible = true;} // Define a flag to track the visibility of the map    
+    map.clear();
+    map.add(drawingPanel);
+    map.centerObject(table2); // Center area on map
+    map.layers().reset();
+    map.add(mapLegend); // Add the legend to the map
+    mapLegend.style().set('shown', false); // Hide the legend
+    map.addLayer(table2.style({color: 'black', fillColor: '00000000'}), {}, "ROI"); // Display boundary on map
+    map.setOptions('SATELLITE'); // Set satellite imagery as default background
+    map.setControlVisibility({layerList: false}); // Turn of default layer selector
+
+    var legend2 = ui.Panel({style: {position: 'top-right', padding: '8px', backgroundColor: 'white', border: '1px solid black'}});
+    legend2.add(ui.Label('Maps for ' + lastPart.getInfo(), {fontWeight: 'bold', fontSize: '16px', margin: '4px'})); // Add a title to the legend
+    map.add(legend2);
+    
+    // Get min and max for each layer
+    var potentialNPPStats = getMinMax(potentialNPP);
+    var actualNPPStats = getMinMax(actualNPP);
+    var potentialNPPimprovementStats = getMinMax(potentialNPPimprovement);
+    var socStats = getMinMax(isric_ocs);
+    var cfvo0_30Stats = getMinMax(cfvo0_30);
+    var sand0_30Stats = getMinMax(sand0_30);
+    var tccStats = getMinMax(tcc);
+    var slopeStats = getMinMax(slope);
+    var potAddSeqStats = getMinMax(potAddSeq);
+    var afgCoverStats = getMinMax(afgCover);
+    var pfgCoverStats = getMinMax(pfgCover);
+    var shrCoverStats = getMinMax(shrCover);
+    
+    // Display maps using client-side min and max values
+    var opacity = 0.6;
+    var map_layer_position = 1;
+    var labels;
+    var currentRequestId = 0;
+    var getImages = function(image_name){
+      var stats;
+      var layer;
+      if(image_name === "Slope (degrees)"){
+        stats = slopeStats;
+        layer = slope;
+      }else if(image_name === "Potential NPP (tCO2/acre/yr)"){
+        stats = potentialNPPStats;
+        layer = potentialNPP;
+      }else if(image_name === "Actual NPP (tCO2/acre/yr)"){
+        stats = actualNPPStats;
+        layer = actualNPP;
+      }else if(image_name === "Pot NPP Improvement (tCO2/acre/yr)"){
+        stats = potentialNPPimprovementStats;
+        layer = potentialNPPimprovement;
+      }else if(image_name === "Coarse Fragments, by vol 0-30cm (%)"){
+        stats = cfvo0_30Stats;
+        layer = cfvo0_30;
+      }else if(image_name === "Sand 0-30cm (%)"){
+        stats = sand0_30Stats;
+        layer = sand0_30;
+      }else if(image_name === "NLCD Tree Canopy Cover (%)"){
+        stats = tccStats;
+        layer = tcc;
+      }else if(image_name === "SOC 0-30cm (tC/ha)"){
+        stats = socStats;
+        layer = isric_ocs;
+      }else if(image_name === "Annual Cover (%)"){
+        stats = afgCoverStats;
+        layer = afgCover;
+      }else if(image_name === "Perennial Cover (%)"){
+        stats = pfgCoverStats;
+        layer = pfgCover;
+      }else if(image_name === "Shrub Cover (%)"){
+        stats = shrCoverStats;
+        layer = shrCover;
+      }else if(image_name === "Pot New Seq (tCO2/acre/yr)"){
+        stats = potAddSeqStats;
+        layer = potAddSeq;  
+      }else if(image_name === "Areas without tree cover (in white)"){
+        map.layers().set(map_layer_position, ui.Map.Layer(projectAreaImage, {palette: ['white'], opacity: 0.5}, image_name));// Display the project area excluding tree cover
+      }else if(image_name === 'Areas with tree cover > ' + treeCoverThreshold.getInfo() + '% (in red)'){
+        map.layers().set(map_layer_position, ui.Map.Layer(treesAreaImage, {palette: ['red'], opacity: 0.5}, image_name));// Display the area with tree cover above the threshold
+      }
+      
+      if(stats){
+        var requestId = ++currentRequestId; // Increment and store the request ID, used to control asynchronous calls
+        stats.min.evaluate(function(minVal) { 
+          stats.max.evaluate(function(maxVal) {
+            stats.mean.evaluate(function(meanVal) {
+              if (requestId === currentRequestId){
+                 minVal = ee.Number(minVal).max(0).getInfo();  // minVal should not be less than 0
+      meanVal = ee.Number(meanVal).max(0).getInfo();  // meanVal should not be less than 0
+      maxVal = ee.Number(maxVal).max(0).getInfo();  // maxVal should not be less than 0
+
+                minVal = minVal.toFixed(1);
+                meanVal = meanVal.toFixed(1);
+                maxVal = maxVal.toFixed(1);
+                labels =[minVal + ' (minimum)', ' ', meanVal + ' (mean)', ' ', maxVal + ' (maximum)']
+                map.layers().set(map_layer_position, ui.Map.Layer(layer, {min: minVal, max: maxVal, palette: main_palette, opacity: opacity}, image_name));
+                updateLegend(image_name, main_palette, labels)
+              }
+            });
+          });
+        });
+      }else{
+        mapLegend.style().set('shown', false); // Show the legend
+      }
+
+      }
+
+    // var labels = [potentialNPPStats.min.format('%.2f').getInfo(), ' ', potentialNPPStats.mean.format('%.2f').getInfo(), ' ', potentialNPPStats.max.format('%.2f').getInfo()];
+
+    return getImages;
+    }
+
+																						  
+					   
+	 
+																																							
+
+									  
+													  
+																						 
+																										 
+																						   
+																								 
+																								   
+																						   
+		 
+
+  
+										   
+											  
+														   
+										   
+											  
+																   
+	 
+	  
+										   
+};
+
+// var get_images;
+var loadImage = function(){
+    var yearJSON = yearSelector.getValue();
+    var year = ee.Number.parse(yearJSON);
+    var treeCoverThreshold = ee.Number.parse(thresholdTextbox.getValue());
+    var display_maps = displayMapsCheckbox.getValue();
+    var export_shapefiles = exportCheckbox.getValue();
+    var selectedName = polygonSelector.getValue();
+    var selectedAssetId = get_asset(selectedName);
+    var get_images = loadClimateVegetationSoilInfo(selectedAssetId, year, treeCoverThreshold, display_maps, export_shapefiles);
+    
+    var image_names = [
+        "Actual NPP (tCO2/acre/yr)",
+        "Pot NPP Improvement (tCO2/acre/yr)",
+        "Pot New Seq (tCO2/acre/yr)",
+        "Potential NPP (tCO2/acre/yr)",
+        "NLCD Tree Canopy Cover (%)",
+        "Annual Cover (%)",
+        "Perennial Cover (%)",
+        "Shrub Cover (%)",
+        "Slope (degrees)",
+        "SOC 0-30cm (tC/ha)",
+        "Sand 0-30cm (%)",
+        "Coarse Fragments, by vol 0-30cm (%)",
+        "Areas without tree cover (in white)",
+        'Areas with tree cover > ' + treeCoverThreshold.getInfo() + '% (in red)']
+
+    addLayerSelector(image_names, get_images);
+    hideDrawings() // To hide the drawn geometry
+    };
+var submitButton = ui.Button({label: 'Run', onClick: loadImage, });
+  panel.add(submitButton);
+
+var urlLabel_kml = ui.Label({value: '>> Download a KML with tree exclusions', style: {fontSize: '0.9vw'}});
+  urlLabel_kml.style().set('shown', false);
+var downloadPanel_kml = ui.Panel([urlLabel_kml]);																								 
+
+var urlLabel_shp = ui.Label({value: '>> Download a shapefile with tree exclusions', style: {fontSize: '0.9vw'}});
+  urlLabel_shp.style().set('shown', false);
+var downloadPanel_shp = ui.Panel([urlLabel_shp]);
+
+var urlLabel_geojson = ui.Label({value: '>> Download a GeoJSON with tree exclusions', style: {fontSize: '0.9vw'}});
+  urlLabel_geojson.style().set('shown', false);
+var downloadPanel_geojson = ui.Panel([urlLabel_geojson]);
+
+panel.add(downloadPanel_kml); // Add the kml download button to the UI
+panel.add(downloadPanel_shp); // Add the shp download button to the UI
+panel.add(downloadPanel_geojson); // Add the GeoJSON download button to the UI
+
+
+var resultLabel = ui.Label({value: '', style: {fontSize: '.8vw', fontWeight: 'normal', whiteSpace: 'pre'}});
+  panel.add(resultLabel);
+function updateResult(newResult) {resultLabel.setValue(newResult);}
+var mapLegend = ui.Panel({style: {position: 'bottom-left', padding: '8px', backgroundColor: 'white', border: '1px solid black'}}); // Create a legend panel
+
+function updateLegend(legend_title, main_palette, labels){
+  mapLegend.clear();
+  var legendTitle = ui.Label(legend_title, {fontWeight: 'bold', fontSize: '16px', margin: '4px'})
+  mapLegend.add(legendTitle);
+  for (var i = main_palette.length - 1; i >= 0; i--) 
+    {
+      var colorBox = ui.Label({style: {backgroundColor: main_palette[i], padding: '8px', margin: '2px'}});
+      var label = ui.Label(labels[i], {margin: '2px'}); // Create a label for the color
+      mapLegend.add(ui.Panel([colorBox, label], ui.Panel.Layout.Flow('horizontal')));
+    
+  // Position the legend at the middle right of the map
+  mapLegend.style().set({
+    position: 'top-right', // Initially position it at the top-right
+    margin: '100px 20px',   // Push the legend 100px from the top and 10px from the right
+    width: 'auto', //width: '250px',         // Set a fixed width for the legend
+    height: 'auto'          // Adjust height based on content
+  });
+      
+    } // Add the color box and label to the legend
+  mapLegend.style().set('shown', true); // Show the legend
+}
+
+var symbol = {polygon: '🔺', point: '📍',};
+  var geometryName = ui.Textbox({placeholder: 'Name', value: 'Name',});
+var drawingPanel = ui.Panel(
+  {widgets: 
+    [ui.Label('Draw Option', {textAlign: 'center', width: '100%'}), 
+    ui.Button({label: symbol.polygon + ' Draw polygon', onClick: drawPolygon, style: {stretch: 'horizontal'}}),
+    ui.Button({label: symbol.point + ' Select point', onClick: drawPoint, style: {stretch: 'horizontal'}}),
+    ui.Button({label: 'Clear polygons', onClick: clearGeometry, style: {stretch: 'horizontal'}}),
+    geometryName,
+    ui.Button({label: 'Save as kml', onClick: saveGeometry, style: {stretch: 'horizontal'}})],
+  style: {position: 'bottom-left', height: '315px', width: '135px', padding: '5px'}, layout: null,});
+var vectorUrlLabel = ui.Label('  >> Download', {shown: true});
+var vectorDownloadPanel = ui.Panel([vectorUrlLabel]);
+
+drawingPanel.add(vectorDownloadPanel); // Add the download button to the UI
+map.add(drawingPanel);
+		   
+// +++++++++++++++++++++++++++++++++++
+// --- FOOTER TEXT SECTION ---
+var footerText = ui.Label({
+  value: 'Version Notes (Aug 17, 2026): \n1) Data up through 2025 is now an option. \n2) NPP is now for herbaceous grass and forbs (it included shrub before). \n3) USFS NLCD Tree Canopy Cover is now always used for tree exclusions. \n4) Note that the NLCD data is from 1985-2023, so if year 2025 is specified, it will only use the data available from 2021-2023 (instead of 2021-2025)',
+  style: {
+    fontSize: '0.8vw',
+    color: 'gray',
+    whiteSpace: 'pre',
+    margin: '10px 0 0 8px' // Top, right, bottom, left
+  }
+});
+
+panel.add(footerText);
