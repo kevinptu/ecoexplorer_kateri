@@ -1,8 +1,18 @@
-# EcoExplorer — Earth Engine geometry uploader
+# EcoExplorer — GEE apps and geometry uploader
 
 A Streamlit companion to the EcoExplorer Google Earth Engine (GEE) web app. Upload a KML, zipped shapefile, or GeoJSON, then return to EcoExplorer and refresh to use the uploaded geometry.
 
-**This repository contains the uploader, not the EcoExplorer GEE analysis application.** Its Python entry point is [`app.py`](app.py). Hosting or updating this repository does not publish or update the GEE web app.
+This repository includes two GEE application scripts and their Streamlit upload companion. Updating this repository does not automatically publish or update the GEE web apps.
+
+## GEE application versions
+
+- [`gee/Ecoexplorer_RAP.txt`](gee/Ecoexplorer_RAP.txt): RAP version, copied from the supplied local file.
+- [`gee/Ecoexplorer_NLCD.txt`](gee/Ecoexplorer_NLCD.txt): NLCD version, copied from the supplied local file.
+- [`app.py`](app.py): Streamlit geometry uploader shared with the GEE workflow.
+
+The `.txt` files contain Earth Engine JavaScript. Paste the desired version into the Earth Engine Code Editor, review its asset references and account permissions, and run it there. Deploy or update the corresponding Earth Engine App separately.
+
+These are snapshots of the requested local files, not exports verified against the latest GEE Code Editor or published apps. Changes in the Code Editor do not synchronize automatically with this repository. Copy the latest script into the appropriate file, review the diff, then commit and push to keep GitHub current.
 
 ## Upload a geometry
 
